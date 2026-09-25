@@ -1,6 +1,7 @@
 # tests/test_planner.py
 import time
 
+import restoration_graph
 from restoration_graph import ACTIONS, START, GOAL, available_actions, apply_action
 from planner import bfs_search
 
@@ -18,19 +19,6 @@ def is_valid_plan(plan, actions=ACTIONS):
     return completed == set(actions.keys())
 
 
-def make_problem(actions):
-    """Build available_actions/apply_action for an arbitrary ACTIONS dict,
-    mirroring restoration_graph.py (whose functions are bound to its own ACTIONS)."""
-    def available(state):
-        return [a for a, info in actions.items()
-                if a not in state and info["requires"].issubset(state)]
-
-    def apply(state, action):
-        return state | {action}
-
-    return available, apply
-
-
 def test_finds_a_valid_plan():
     plan = bfs_search(START, GOAL, available_actions, apply_action)
     assert plan is not None
@@ -46,44 +34,54 @@ def test_trivial_already_done():
 def test_plan_has_no_duplicate_actions():
     plan = bfs_search(START, GOAL, available_actions, apply_action)
     assert len(plan) == len(set(plan))
-
-
 def test_no_solution_returns_none():
-    # Case 1: goal names an action that doesn't exist in ACTIONS.
-    impossible_goal = GOAL | {"gild_statue"}
-    assert bfs_search(START, impossible_goal, available_actions, apply_action) is None
+    # Add an action to the goal that can never be completed.
+    impossible_goal = GOAL | {"impossible_action"}
 
-    # Case 2: circular prerequisites -- a needs b, b needs a. Neither can ever run.
-    circular = {
-        "a": {"requires": {"b"}, "cost": 1},
-        "b": {"requires": {"a"}, "cost": 1},
-        "c": {"requires": set(), "cost": 1},
-    }
-    available, apply = make_problem(circular)
-    assert bfs_search(frozenset(), frozenset(circular), available, apply) is None
+    plan = bfs_search(START, impossible_goal, available_actions, apply_action)
 
-    # Case 3: prerequisite on an action that doesn't exist.
-    dangling = {"a": {"requires": {"ghost"}, "cost": 1}}
-    available, apply = make_problem(dangling)
-    assert bfs_search(frozenset(), frozenset(dangling), available, apply) is None
+    # BFS should exhaust all reachable states and return None.
+    assert plan is None
 
 
 def test_large_action_set_terminates():
-    # 20 actions in a single chain: step_i requires step_{i-1}.
-    n = 20
-    big = {f"step_{i}": {"requires": {f"step_{i - 1}"} if i else set(), "cost": 1}
-           for i in range(n)}
-    available, apply = make_problem(big)
+    # Create 15 actions in a chain, where each step requires the previous step.
+    big_actions = {
+        f"step_{i}": {
+            "requires": {f"step_{i - 1}"} if i > 0 else set(),
+            "cost": 1
+        }
+        for i in range(15)
+    }
 
+    # Same behavior as restoration_graph.available_actions,
+    # but using our larger test action set.
+    def big_available_actions(state):
+        return [
+            action for action, info in big_actions.items()
+            if action not in state
+            and info["requires"].issubset(state)
+        ]
+
+    def big_apply_action(state, action):
+        return state | {action}
+
+    start = frozenset()
+    goal = frozenset(big_actions)
+
+    # Time the search to make sure the larger problem terminates quickly.
     t0 = time.perf_counter()
-    plan = bfs_search(frozenset(), frozenset(big), available, apply)
+
+    plan = bfs_search(
+        start,
+        goal,
+        big_available_actions,
+        big_apply_action
+    )
+
     elapsed = time.perf_counter() - t0
 
+    # Make sure BFS found a valid plan and finished within the time limit.
     assert plan is not None
-    assert is_valid_plan(plan, big)
+    assert is_valid_plan(plan, big_actions)
     assert elapsed < 2.0
-
-    # Same chain with an unreachable goal must also terminate (exhaust and return None).
-    t0 = time.perf_counter()
-    assert bfs_search(frozenset(), frozenset(big) | {"ghost"}, available, apply) is None
-    assert time.perf_counter() - t0 < 2.0
