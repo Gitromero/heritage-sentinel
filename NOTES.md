@@ -1,1 +1,3 @@
 We didn't need to change the planner because it was made with the express intent of navigating any problem, as long as it is provided with all the necessary input variables and functions. Since we generalized everything to use the same format, it works just fine even without the original problem it was designed for. As long as a problem follows the expected format, it can be planned without modifying the planner.
+
+Lab 2: test_no_solution_returns_none showed that bfs_search already returns None instead of hanging (the visited set bounds the search), but it only gives up after exhausting every reachable state, so an unreachable goal is the most expensive input and costs up to 2^n states for n independent actions.
